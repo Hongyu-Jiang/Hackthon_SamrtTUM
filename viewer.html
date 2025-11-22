@@ -1,116 +1,54 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>IFC Viewer</title>
-  <style>
-    body {
-      margin: 0;
-      overflow: hidden;
-      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
+  <head>
+    <meta charset="UTF-8" />
+    <title>IFC Viewer</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+      }
+      #viewer-container {
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="viewer-container"></div>
 
-    #viewer-container {
-      width: 100vw;
-      height: 100vh;
-      position: relative;
-      background: #f5f5f5;
-    }
+    <!-- 注意：这里使用 ES Module + unpkg 的 web-ifc-viewer -->
+    <script type="module">
+      import { IfcViewerAPI } from "https://unpkg.com/web-ifc-viewer@1.0.218/dist/index.js";
+      import { Color } from "https://unpkg.com/three@0.173.0/build/three.module.js";
 
-    .toolbar {
-      position: absolute;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      display: flex;
-      gap: 12px;
-      padding: 12px 20px;
-      background: rgba(255, 255, 255, 0.9);
-      backdrop-filter: blur(8px);
-      border-radius: 16px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-      z-index: 10;
-    }
+      const container = document.getElementById("viewer-container");
 
-    .toolbar button {
-      background: white;
-      border: none;
-      padding: 10px 16px;
-      border-radius: 12px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.12);
-      cursor: pointer;
-      font-size: 14px;
-      transition: 0.2s;
-    }
+      // 创建 IFC Viewer
+      const viewer = new IfcViewerAPI({
+        container,
+        backgroundColor: new Color(0xffffff),
+      });
 
-    .toolbar button:hover {
-      background: #ededed;
-    }
+      viewer.axes.setAxes();
+      viewer.grid.setGrid();
 
-    .toolbar button:active {
-      transform: scale(0.96);
-    }
-  </style>
-</head>
-<body>
+      // 告诉 IFC.js 去哪里加载 wasm（用 CDN，避免本地路径问题）
+      await viewer.IFC.setWasmPath("https://unpkg.com/web-ifc@0.0.72/");
 
-<div id="viewer-container"></div>
+      // 这里写你仓库里的 IFC 路径（相对路径）
+      // 假设文件是 /ifc/model.ifc
+      const ifcUrl = "./ifc/TU Gebäude 3_2019.ifc"; // <- 这里改成你的文件名
 
-<div class="toolbar">
-  <button onclick="resetView()">重置视角</button>
-  <button onclick="toggleGrid()">显示/隐藏网格</button>
-  <button onclick="goFullScreen()">全屏</button>
-</div>
+      // 加载 IFC 模型
+      const model = await viewer.IFC.loadIfcUrl(ifcUrl);
 
-<script type="module">
-  // ✅ 正确的 web-ifc-viewer 路径（不要再有 ifc-viewer.es.js 了）
-  import { IfcViewerAPI } from "https://cdn.jsdelivr.net/npm/web-ifc-viewer@1.0.218/dist/ifc-viewer-api.js";
-
-  const container = document.getElementById("viewer-container");
-
-  // ✅ 告诉 IFC.js 去哪里加载 wasm
-  const viewer = new IfcViewerAPI({
-    container,
-    backgroundColor: new Uint8Array([255, 255, 255]),
-    wasmPath: "https://cdn.jsdelivr.net/npm/web-ifc@0.0.47/"
-  });
-
-  viewer.axes.setAxes();
-  viewer.grid.setGrid();
-
-  let gridVisible = true;
-
-  // 你的 IFC 模型 URL
-  const IFC_URL =
-    "https://raw.githubusercontent.com/Hongyu-Jiang/Hackthon_SamrtTUM/main/ifc/TU%20Geb%C3%A4ude%203_2019.ifc";
-
-  async function loadIFC() {
-    try {
-      const model = await viewer.IFC.loadIfcUrl(IFC_URL);
-      console.log("IFC loaded:", model);
-    } catch (e) {
-      console.error("Failed to load IFC:", e);
-    }
-  }
-
-  loadIFC();
-
-  // 这三个挂到 window 上，按钮才能调用到
-  window.resetView = () => {
-    viewer.IFC.context.ifcCamera.cameraControls.reset(true);
-  };
-
-  window.toggleGrid = () => {
-    gridVisible = !gridVisible;
-    viewer.grid.visible = gridVisible;
-  };
-
-  window.goFullScreen = () => {
-    if (container.requestFullscreen) {
-      container.requestFullscreen();
-    }
-  };
-</script>
-
-</body>
+      // 加一点后处理效果（阴影等，可选）
+      await viewer.shadowDropper.renderShadow(model.modelID);
+      viewer.context.renderer.postProduction.active = true;
+    </script>
+  </body>
 </html>
