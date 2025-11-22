@@ -1,73 +1,13 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<title>IFC Viewer</title>
-
-<style>
-  body {
-    margin: 0;
-    overflow: hidden;
-    font-family: "Inter", sans-serif;
-  }
-
-  #viewer-container {
-    width: 100vw;
-    height: 100vh;
-    position: relative;
-    background: #f5f5f5;
-  }
-
-  .toolbar {
-    position: absolute;
-    top: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    gap: 12px;
-    padding: 12px 20px;
-    background: rgba(255, 255, 255, 0.85);
-    backdrop-filter: blur(8px);
-    border-radius: 16px;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-    z-index: 10;
-  }
-
-  .toolbar button {
-    background: white;
-    border: none;
-    padding: 10px 16px;
-    border-radius: 12px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.12);
-    cursor: pointer;
-    font-size: 14px;
-    transition: 0.2s;
-  }
-
-  .toolbar button:hover {
-    background: #ededed;
-  }
-</style>
-</head>
-
-<body>
-
-<div id="viewer-container"></div>
-
-<div class="toolbar">
-  <button onclick="resetView()">重置视角</button>
-  <button onclick="toggleGrid()">显示/隐藏网格</button>
-  <button onclick="goFullScreen()">全屏</button>
-</div>
-
 <script type="module">
-  import { IfcViewerAPI } from "https://cdn.jsdelivr.net/npm/web-ifc-viewer@1.0.0/dist/ifc-viewer.es.js";
+  import { IfcViewerAPI } from "https://cdn.jsdelivr.net/npm/web-ifc-viewer@1.0.218/dist/ifc-viewer-api.js";
 
   const container = document.getElementById("viewer-container");
 
+  // 注意这里带 wasmPath
   const viewer = new IfcViewerAPI({
     container,
-    backgroundColor: new Uint8Array([255, 255, 255])
+    backgroundColor: new Uint8Array([255, 255, 255]),
+    wasmPath: "https://cdn.jsdelivr.net/npm/web-ifc@0.0.47/"
   });
 
   viewer.axes.setAxes();
@@ -79,11 +19,17 @@
     "https://raw.githubusercontent.com/Hongyu-Jiang/Hackthon_SamrtTUM/main/ifc/TU%20Geb%C3%A4ude%203_2019.ifc";
 
   async function loadIFC() {
-    await viewer.IFC.loadIfcUrl(IFC_URL);
+    try {
+      const model = await viewer.IFC.loadIfcUrl(IFC_URL);
+      console.log("IFC loaded:", model);
+    } catch (e) {
+      console.error("Failed to load IFC:", e);
+    }
   }
 
   loadIFC();
 
+  // 这几行一定要保留，挂到 window 上
   window.resetView = () => {
     viewer.IFC.context.ifcCamera.cameraControls.reset(true);
   };
@@ -94,9 +40,6 @@
   };
 
   window.goFullScreen = () => {
-    container.requestFullscreen();
+    if (container.requestFullscreen) container.requestFullscreen();
   };
 </script>
-
-</body>
-</html>
