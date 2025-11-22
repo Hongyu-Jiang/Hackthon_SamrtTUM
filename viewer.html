@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="https://cdn.jsdelivr.net/npm/xeokit-sdk/dist/xeokit-sdk.min.js"></script>
+  <style>
+    html, body { margin:0; padding:0; width:100%; height:100%; }
+    #viewer { width:100%; height:100%; }
+  </style>
+</head>
+<body>
+  <div id="viewer"></div>
+
+  <script>
+    const viewer = new xeokit.Viewer({
+      canvasId: "viewer"
+    });
+
+    viewer.loadIFC("https://raw.githubusercontent.com/Hongyu-Jiang/Hackthon_SamrtTUM/refs/heads/main/TU%20Geb%C3%A4ude%203_2019.ifc");   </script>
+</body>
+</html>
