@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>IFC Viewer</title>
+    <title>xeokit IFC Viewer</title>
     <style>
       html,
       body {
@@ -11,44 +11,67 @@
         height: 100%;
         overflow: hidden;
       }
-      #viewer-container {
+      #myCanvas {
         width: 100%;
         height: 100%;
+        display: block;
       }
     </style>
   </head>
   <body>
-    <div id="viewer-container"></div>
+    <canvas id="myCanvas"></canvas>
 
-    <!-- 注意：这里使用 ES Module + unpkg 的 web-ifc-viewer -->
+    <!-- 使用 ES module + CDN 的方式引入 xeokit 和 web-ifc -->
     <script type="module">
-      import { IfcViewerAPI } from "https://unpkg.com/web-ifc-viewer@1.0.218/dist/index.js";
-      import { Color } from "https://unpkg.com/three@0.173.0/build/three.module.js";
+      // 从 jsDelivr 导入 xeokit SDK
+      import {
+        Viewer,
+        WebIFCLoaderPlugin,
+      } from "https://cdn.jsdelivr.net/npm/@xeokit/xeokit-sdk@2.6.27/dist/xeokit-sdk.es.js";
 
-      const container = document.getElementById("viewer-container");
+      // 导入 web-ifc
+      import * as WebIFC from "https://cdn.jsdelivr.net/npm/web-ifc@0.0.51/web-ifc-api.js";
 
-      // 创建 IFC Viewer
-      const viewer = new IfcViewerAPI({
-        container,
-        backgroundColor: new Color(0xffffff),
-      });
+      window.onload = async () => {
+        // 1. 创建 Viewer
+        const viewer = new Viewer({
+          canvasId: "myCanvas",
+          transparent: true,
+        });
 
-      viewer.axes.setAxes();
-      viewer.grid.setGrid();
+        // 相机大概摆一个合适位置，后面会自动飞到模型上
+        viewer.camera.eye = [-20, 20, 20];
+        viewer.camera.look = [0, 0, 0];
+        viewer.camera.up = [0, 1, 0];
 
-      // 告诉 IFC.js 去哪里加载 wasm（用 CDN，避免本地路径问题）
-      await viewer.IFC.setWasmPath("https://unpkg.com/web-ifc@0.0.72/");
+        // 2. 初始化 web-ifc
+        const IfcAPI = new WebIFC.IfcAPI();
+        // wasm 放在 CDN 上，不用你本地配置
+        IfcAPI.SetWasmPath("https://cdn.jsdelivr.net/npm/web-ifc@0.0.51/");
+        await IfcAPI.Init();
 
-      // 这里写你仓库里的 IFC 路径（相对路径）
-      // 假设文件是 /ifc/model.ifc
-      const ifcUrl = "./ifc/TU Gebäude 3_2019.ifc"; // <- 这里改成你的文件名
+        // 3. 创建 WebIFCLoaderPlugin
+        const ifcLoader = new WebIFCLoaderPlugin(viewer, {
+          WebIFC,
+          IfcAPI,
+        });
 
-      // 加载 IFC 模型
-      const model = await viewer.IFC.loadIfcUrl(ifcUrl);
+        // 4. 加载 IFC（注意这里的路径）
+        const model = ifcLoader.load({
+          id: "TU_TUM_Model",
+          // 你的 IFC 文件：位于仓库下的 ifc/TU_Gebaeude_3_2019.ifc
+          src: "./ifc/TU_Gebaeude_3_2019.ifc",
+          edges: true, // 显示边线，可关掉
+        });
 
-      // 加一点后处理效果（阴影等，可选）
-      await viewer.shadowDropper.renderShadow(model.modelID);
-      viewer.context.renderer.postProduction.active = true;
+        // 模型加载完成后，镜头飞过去
+        model.on("loaded", () => {
+          const aabb = viewer.scene.getAABB(model.id);
+          viewer.cameraFlight.flyTo(aabb, {
+            duration: 1.0,
+          });
+        });
+      };
     </script>
   </body>
 </html>
