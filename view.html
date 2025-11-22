@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>xeokit IFC Viewer with Section Controls</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        font-family: Arial, sans-serif;
+      }
+
+      #toolbar {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        z-index: 10;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 6px 10px;
+        border-radius: 6px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 230px;
+      }
+
+      #toolbar .buttons {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      #toolbar button {
+        border: none;
+        padding: 6px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+      }
+
+      #toolbar button:hover {
+        background: #e0e0e0;
+      }
+
+      #toolbar button.active {
+        background: #1976d2;
+        color: #fff;
+      }
+
+      #depth-control {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+      }
+
+      #depth-control input[type="range"] {
+        flex: 1;
+      }
+
+      #myCanvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 工具条：剖切按钮 + 深度滑条 -->
+    <div id="toolbar">
+      <div class="buttons">
+        <button id="btn-cut-x">X section</button>
+        <button id="btn-cut-y">Y section</button>
+        <button id="btn-cut-z">Z section</button>
+        <button id="btn-cut-clear">clear section</button>
+      </div>
+      <div id="depth-control">
+        <span>section depth：</span>
+        <input id="cut-depth" type="range" min="0" max="100" value="50" />
+        <span id="depth-label">50%</span>
+      </div>
+      <div style="font-size: 11px; color: #555">
+        (Use the buttons to create/remove section planes, and adjust depth with
+        the slider)
+      </div>
+    </div>
+
+    <!-- 画布 -->
+    <canvas id="myCanvas"></canvas>
+
+    <!-- xeokit + web-ifc -->
+    <script type="module">
+      import {
+        Viewer,
+        WebIFCLoaderPlugin,
+        SectionPlanesPlugin,
+      } from "https://cdn.jsdelivr.net/npm/@xeokit/xeokit-sdk@2.6.27/dist/xeokit-sdk.es.js";
+
+      import * as WebIFC from "https://cdn.jsdelivr.net/npm/web-ifc@0.0.51/web-ifc-api.js";
+
+      window.onload = async () => {
+        // 1. 创建 Viewer
+        const viewer = new Viewer({
+          canvasId: "myCanvas",
+          transparent: true,
+        });
+
+        // 一个初始大概视角（真正位置等 IFC 加载完再根据 AABB 调）
+        viewer.camera.eye = [-20, 20, 20];
+        viewer.camera.look = [0, 0, 0];
+        viewer.camera.up = [0, 1, 0];
+
+        // 2. web-ifc 初始化
+        const IfcAPI = new WebIFC.IfcAPI();
+        IfcAPI.SetWasmPath("https://cdn.jsdelivr.net/npm/web-ifc@0.0.51/");
+        await IfcAPI.Init();
+
+        // 3. IFC Loader
+        const ifcLoader = new WebIFCLoaderPlugin(viewer, {
+          WebIFC,
+          IfcAPI,
+        });
+
+        let modelAABB = null; // 模型包围盒
+
+        const model = ifcLoader.load({
+          id: "TU_TUM_Model",
+          src: "./ifc/TU_Gebaeude_3_2019.ifc", // 你的 IFC 路径
+          edges: true,
+        });
+
+        // IFC 加载完成后：自己算中心点和一个合适的 eye，不再用 cameraFlight
+        let firstLoaded = false;
+        model.on("loaded", () => {
+          if (firstLoaded) return;
+          firstLoaded = true;
+
+          modelAABB = viewer.scene.getAABB(model.id); // [xmin,ymin,zmin,xmax,ymax,zmax]
+
+          const xmin = modelAABB[0];
+          const ymin = modelAABB[1];
+          const zmin = modelAABB[2];
+          const xmax = modelAABB[3];
+          const ymax = modelAABB[4];
+          const zmax = modelAABB[5];
+
+          // 模型中心
+          const cx = (xmin + xmax) / 2;
+          const cy = (ymin + ymax) / 2;
+          const cz = (zmin + zmax) / 2;
+
+          // 模型对角线长度，决定 camera 距离
+          const dx = xmax - xmin;
+          const dy = ymax - ymin;
+          const dz = zmax - zmin;
+          const diag = Math.sqrt(dx * dx + dy * dy + dz * dz) || 10;
+
+          // 设置相机：从斜上方看向模型中心
+          viewer.camera.look = [cx, cy, cz];
+          viewer.camera.eye = [cx - diag, cy + diag, cz + diag];
+          viewer.camera.up = [0, 1, 0];
+        });
+
+        // 4. 剖切插件 + 按钮逻辑
+        const sectionPlanes = new SectionPlanesPlugin(viewer);
+
+        // 记录当前三个方向的剖切面和深度（0-100%）
+        const planes = {
+          x: null,
+          y: null,
+          z: null,
+        };
+        const depths = {
+          x: 50,
+          y: 50,
+          z: 50,
+        };
+
+        let currentAxis = null; // 当前激活的方向：'x' | 'y' | 'z' | null
+
+        const btnX = document.getElementById("btn-cut-x");
+        const btnY = document.getElementById("btn-cut-y");
+        const btnZ = document.getElementById("btn-cut-z");
+        const btnClear = document.getElementById("btn-cut-clear");
+        const depthSlider = document.getElementById("cut-depth");
+        const depthLabel = document.getElementById("depth-label");
+
+        function clearButtonActive() {
+          [btnX, btnY, btnZ].forEach((b) => b.classList.remove("active"));
+        }
+
+        // 根据模型 AABB 和百分比，设置剖切面位置
+        function setPlaneDepth(axis, percent) {
+          if (!modelAABB || !planes[axis]) return;
+
+          const t = percent / 100;
+          const aabb = modelAABB;
+          const pos = [0, 0, 0];
+
+          if (axis === "x") {
+            const min = aabb[0];
+            const max = aabb[3];
+            pos[0] = min + t * (max - min); // X: 从左到右
+          } else if (axis === "y") {
+            const min = aabb[1];
+            const max = aabb[4];
+            // Y: 从上往下切（0% 在顶，100% 在底）
+            pos[1] = min + t * (max - min);
+          } else if (axis === "z") {
+            const min = aabb[2];
+            const max = aabb[5];
+            pos[2] = min + t * (max - min); // Z: 从前到后（你也可以反过来）
+          }
+
+          planes[axis].pos = pos;
+        }
+
+        // 创建或删除某个方向的剖切面
+        function togglePlane(axis) {
+          let dir;
+          if (axis === "x") dir = [1, 0, 0];
+          if (axis === "y") dir = [0, -1, 0];
+          if (axis === "z") dir = [0, 0, 1];
+          if (!dir) return;
+
+          if (planes[axis]) {
+            // 已存在 -> 删除
+            sectionPlanes.destroySectionPlane(planes[axis].id);
+            planes[axis] = null;
+
+            if (currentAxis === axis) {
+              currentAxis = null;
+            }
+          } else {
+            // 创建剖切面，位置稍后再按 depth 调整
+            planes[axis] = sectionPlanes.createSectionPlane({
+              id: "cut_" + axis,
+              pos: [0, 0, 0],
+              dir,
+            });
+
+            // 如果模型已经加载好了，按当前深度摆放
+            setPlaneDepth(axis, depths[axis]);
+
+            currentAxis = axis;
+          }
+
+          // 刷新按钮状态
+          clearButtonActive();
+          if (planes["x"]) btnX.classList.add("active");
+          if (planes["y"]) btnY.classList.add("active");
+          if (planes["z"]) btnZ.classList.add("active");
+
+          // 如果当前轴存在，让滑条显示对应深度
+          if (currentAxis && planes[currentAxis]) {
+            depthSlider.value = depths[currentAxis];
+            depthLabel.textContent = depths[currentAxis] + "%";
+          }
+        }
+
+        // X / Y / Z 剖切按钮
+        btnX.addEventListener("click", () => togglePlane("x"));
+        btnY.addEventListener("click", () => togglePlane("y"));
+        btnZ.addEventListener("click", () => togglePlane("z"));
+
+        // 清除所有剖切
+        btnClear.addEventListener("click", () => {
+          sectionPlanes.clear();
+          planes.x = planes.y = planes.z = null;
+          currentAxis = null;
+          clearButtonActive();
+        });
+
+        // 深度滑条事件：调节当前轴
+        depthSlider.addEventListener("input", () => {
+          const value = Number(depthSlider.value);
+          depthLabel.textContent = value + "%";
+
+          if (!currentAxis || !planes[currentAxis]) return;
+
+          depths[currentAxis] = value;
+          setPlaneDepth(currentAxis, value);
+        });
+      };
+    </script>
+  </body>
+</html>
